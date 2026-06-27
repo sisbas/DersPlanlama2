@@ -541,10 +541,12 @@ export default function AiLearningPanel({
     try {
       const selectedHist = historicalSchedules.find((s) => s.id === selectedHistoricalId);
       
+      const apiSecret = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_INTERNAL_API_SECRET;
       const response = await fetch("/api/ai/analyze", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(apiSecret ? { "x-api-key": apiSecret } : {}),
         },
         body: JSON.stringify({
           currentSchedule: {

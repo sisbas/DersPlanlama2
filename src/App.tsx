@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ComponentType } from "react";
 import { 
   BarChart2, 
   UserCheck, 
@@ -59,6 +59,7 @@ import WorkingHoursPanel from "./components/WorkingHoursPanel";
 import ClassroomPlanning from "./components/ClassroomPlanning";
 import AiLearningPanel from "./components/AiLearningPanel";
 import { SchoolScheduleConfig, DEFAULT_SCHEDULE_CONFIG, getActivePeriodsCountForDay } from "./utils/timeSettings";
+import { safeLoad, safeSave } from "./utils/storage";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -66,19 +67,16 @@ export default function App() {
   const [targetPlanIds, setTargetPlanIds] = useState<string[]>([]);
 
   // States with Local Storage persistence
-  const [scheduleConfig, setScheduleConfig] = useState<SchoolScheduleConfig>(() => {
-    const saved = localStorage.getItem("ata_schedule_config");
-    return saved ? JSON.parse(saved) : DEFAULT_SCHEDULE_CONFIG;
-  });
+  const [scheduleConfig, setScheduleConfig] = useState<SchoolScheduleConfig>(() =>
+    safeLoad("ata_schedule_config", DEFAULT_SCHEDULE_CONFIG)
+  );
 
-  const [classrooms, setClassrooms] = useState<Classroom[]>(() => {
-    const saved = localStorage.getItem("ata_classrooms");
-    return saved ? JSON.parse(saved) : INITIAL_CLASSROOMS;
-  });
+  const [classrooms, setClassrooms] = useState<Classroom[]>(() =>
+    safeLoad("ata_classrooms", INITIAL_CLASSROOMS)
+  );
 
   const [teachers, setTeachers] = useState<Teacher[]>(() => {
-    const saved = localStorage.getItem("ata_teachers");
-    const rawTeachers = saved ? JSON.parse(saved) : INITIAL_TEACHERS;
+    const rawTeachers = safeLoad("ata_teachers", INITIAL_TEACHERS);
     
     const allDays = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
     const allHours = Array.from({ length: 20 }, (_, i) => (i + 1).toString());
@@ -92,12 +90,10 @@ export default function App() {
   });
 
   const [classes, setClasses] = useState<ClassUnit[]>(() => {
-    const saved = localStorage.getItem("ata_classes");
-    let initialClasses = saved ? JSON.parse(saved) : INITIAL_CLASSES;
+    let initialClasses = safeLoad("ata_classes", INITIAL_CLASSES);
     
     // Auto-migrate to respect maxWeeklyHoursByGrade config constraint
-    const conf = localStorage.getItem("ata_schedule_config");
-    const scheduleConfigObj = conf ? JSON.parse(conf) : DEFAULT_SCHEDULE_CONFIG;
+    const scheduleConfigObj = safeLoad("ata_schedule_config", DEFAULT_SCHEDULE_CONFIG);
     
     initialClasses = initialClasses.map((c: ClassUnit) => {
       const sName = c.sinifAdi;
@@ -105,7 +101,7 @@ export default function App() {
       const maxAllowed = scheduleConfigObj.maxWeeklyHoursByGrade?.[seviye];
       
       if (maxAllowed) {
-         let currentSum = Object.values(c.haftalikDersIhtiyaci).reduce((a: any, b: any) => a + Number(b), 0);
+         let currentSum = Object.values(c.haftalikDersIhtiyaci).reduce((a: number, b) => a + Number(b), 0);
          if (currentSum > maxAllowed) {
             let newIhtiyac = { ...c.haftalikDersIhtiyaci };
             // Scale down from the largest hours until it fits
@@ -127,30 +123,25 @@ export default function App() {
     return initialClasses;
   });
 
-  const [plans, setPlans] = useState<PlanItem[]>(() => {
-    const saved = localStorage.getItem("ata_plans");
-    return saved ? JSON.parse(saved) : INITIAL_PLAN_ITEMS;
-  });
+  const [plans, setPlans] = useState<PlanItem[]>(() =>
+    safeLoad("ata_plans", INITIAL_PLAN_ITEMS)
+  );
 
-  const [students, setStudents] = useState<Student[]>(() => {
-    const saved = localStorage.getItem("ata_students");
-    return saved ? JSON.parse(saved) : INITIAL_STUDENTS;
-  });
+  const [students, setStudents] = useState<Student[]>(() =>
+    safeLoad("ata_students", INITIAL_STUDENTS)
+  );
 
-  const [exams, setExams] = useState<Exam[]>(() => {
-    const saved = localStorage.getItem("ata_exams");
-    return saved ? JSON.parse(saved) : INITIAL_EXAMS;
-  });
+  const [exams, setExams] = useState<Exam[]>(() =>
+    safeLoad("ata_exams", INITIAL_EXAMS)
+  );
 
-  const [counselings, setCounselings] = useState<CounselingSession[]>(() => {
-    const saved = localStorage.getItem("ata_counselings");
-    return saved ? JSON.parse(saved) : INITIAL_COUNSELINGS;
-  });
+  const [counselings, setCounselings] = useState<CounselingSession[]>(() =>
+    safeLoad("ata_counselings", INITIAL_COUNSELINGS)
+  );
 
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
-    const saved = localStorage.getItem("ata_attendance");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() =>
+    safeLoad("ata_attendance", [])
+  );
 
   const [showResetDialog, setShowResetDialog] = useState(false);
 
@@ -249,39 +240,39 @@ export default function App() {
 
   // Persists states when modified
   useEffect(() => {
-    localStorage.setItem("ata_schedule_config", JSON.stringify(scheduleConfig));
+    safeSave("ata_schedule_config", scheduleConfig);
   }, [scheduleConfig]);
 
   useEffect(() => {
-    localStorage.setItem("ata_classrooms", JSON.stringify(classrooms));
+    safeSave("ata_classrooms", classrooms);
   }, [classrooms]);
 
   useEffect(() => {
-    localStorage.setItem("ata_teachers", JSON.stringify(teachers));
+    safeSave("ata_teachers", teachers);
   }, [teachers]);
 
   useEffect(() => {
-    localStorage.setItem("ata_classes", JSON.stringify(classes));
+    safeSave("ata_classes", classes);
   }, [classes]);
 
   useEffect(() => {
-    localStorage.setItem("ata_plans", JSON.stringify(plans));
+    safeSave("ata_plans", plans);
   }, [plans]);
 
   useEffect(() => {
-    localStorage.setItem("ata_students", JSON.stringify(students));
+    safeSave("ata_students", students);
   }, [students]);
 
   useEffect(() => {
-    localStorage.setItem("ata_exams", JSON.stringify(exams));
+    safeSave("ata_exams", exams);
   }, [exams]);
 
   useEffect(() => {
-    localStorage.setItem("ata_counselings", JSON.stringify(counselings));
+    safeSave("ata_counselings", counselings);
   }, [counselings]);
 
   useEffect(() => {
-    localStorage.setItem("ata_attendance", JSON.stringify(attendanceRecords));
+    safeSave("ata_attendance", attendanceRecords);
   }, [attendanceRecords]);
 
   // Handle updates
@@ -355,7 +346,7 @@ export default function App() {
   };
 
   // Sidebar toggle help
-  const renderSidebarItem = (id: string, label: string, icon: any) => {
+  const renderSidebarItem = (id: string, label: string, icon: ComponentType<{ className?: string }>) => {
     const IconCmp = icon;
     const isActive = activeTab === id;
     

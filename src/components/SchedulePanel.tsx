@@ -467,9 +467,13 @@ export default function SchedulePanel({
       setAiLoopStep("ai_eval");
 
       // Step 2: Send schedule to AI feedback endpoint
+      const apiSecret = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_INTERNAL_API_SECRET;
       const response = await fetch("/api/ai/feedback-loop", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiSecret ? { "x-api-key": apiSecret } : {}),
+        },
         body: JSON.stringify({
           plans: firstSchedule,
           teachers,
