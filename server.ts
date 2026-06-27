@@ -1,4 +1,4 @@
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -19,11 +19,11 @@ import {
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Increase payload size limit to accommodate entire schedule JSON structures
-app.use(express.json({ limit: "25mb" }));
-app.use(express.urlencoded({ limit: "25mb", extended: true }));
+app.use(express.json({ limit: process.env.API_BODY_LIMIT || "5mb" }));
+app.use(express.urlencoded({ limit: process.env.API_BODY_LIMIT || "5mb", extended: true }));
 
 // Initialize Google GenAI Client
 const apiKey = process.env.GEMINI_API_KEY;
@@ -38,6 +38,46 @@ const ai = apiKey
       },
     })
   : null;
+
+
+const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET;
+const isProduction = process.env.NODE_ENV === "production";
+
+const apiKeyAuth = (req: Request, res: Response, next: NextFunction) => {
+  if (!INTERNAL_API_SECRET) {
+    if (isProduction) {
+      return res.status(503).json({ error: "AI API authentication is not configured." });
+    }
+    return next();
+  }
+
+  const providedKey = req.header("x-api-key");
+  if (providedKey !== INTERNAL_API_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  next();
+};
+
+const sanitizePromptInput = (value: unknown, maxLength = 500): string => {
+  if (typeof value !== "string") return "";
+
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/```/g, "'''")
+    .slice(0, maxLength)
+    .trim();
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const validateArrayField = (value: unknown, fieldName: string, maxItems: number): string | null => {
+  if (value === undefined) return null;
+  if (!Array.isArray(value)) return `${fieldName} must be an array.`;
+  if (value.length > maxItems) return `${fieldName} exceeds the maximum item count of ${maxItems}.`;
+  return null;
+};
 
 interface CurrentScheduleInput {
   plans?: PlanItem[];
@@ -284,8 +324,27 @@ Ders programınızdaki **bilişsel yük** ve **pedagojik verimlilik** dengesi ta
 }
 
 // AI Schedule Analysis Endpoint
-app.post("/api/ai/analyze", async (req, res) => {
-  const { currentSchedule, historicalSchedules, customPrompt, unstructuredRawText, branchAnalysis } = req.body;
+app.post("/api/ai/analyze", apiKeyAuth, async (req, res) => {
+  if (!isPlainObject(req.body)) {
+    return res.status(400).json({ error: "Request body must be a JSON object." });
+  }
+
+  const body = req.body as Record<string, any>;
+  const { currentSchedule = {}, historicalSchedules, unstructuredRawText, branchAnalysis = { branchesConfig: [] } } = body;
+  const customPrompt = sanitizePromptInput(body.customPrompt);
+
+  if (currentSchedule !== undefined && !isPlainObject(currentSchedule)) {
+    return res.status(400).json({ error: "currentSchedule must be an object." });
+  }
+
+  const historicalError = validateArrayField(historicalSchedules, "historicalSchedules", 10);
+  if (historicalError) {
+    return res.status(400).json({ error: historicalError });
+  }
+
+  if (typeof unstructuredRawText === "string" && unstructuredRawText.length > 50_000) {
+    return res.status(400).json({ error: "unstructuredRawText is too long." });
+  }
 
   if (!ai) {
     // Return high quality heuristic report when API is not available
@@ -537,8 +596,19 @@ JSON Şeması:
 });
 
 // AI Feedback Loop Endpoint for Genetic Algorithm guidance
-app.post("/api/ai/feedback-loop", async (req, res) => {
-  const { plans, teachers, classes, classrooms, courses, config } = req.body;
+app.post("/api/ai/feedback-loop", apiKeyAuth, async (req, res) => {
+  if (!isPlainObject(req.body)) {
+    return res.status(400).json({ error: "Request body must be a JSON object." });
+  }
+
+  const body = req.body as Record<string, any>;
+  const { plans = [], teachers = [], classes = [], classrooms = [], courses = [], config = {} } = body;
+  for (const [fieldName, maxItems] of Object.entries({ plans: 5000, teachers: 1000, classes: 1000, classrooms: 500, courses: 500 })) {
+    const error = validateArrayField(body[fieldName], fieldName, maxItems);
+    if (error) {
+      return res.status(400).json({ error });
+    }
+  }
 
   if (!ai) {
     const fallbackFeedback = getHeuristicFeedback(plans, teachers, classes, classrooms, courses, config);
@@ -548,7 +618,7 @@ app.post("/api/ai/feedback-loop", async (req, res) => {
   try {
 
     const scheduleSummary = {
-      totalPlans: plans.length,
+      totalPlans: (plans || []).length,
       classes: (classes || []).map((c: ClassUnit) => ({
         id: c.id,
         name: c.sinifAdi,
@@ -566,7 +636,7 @@ app.post("/api/ai/feedback-loop", async (req, res) => {
         name: c.dersAdi,
         difficulty: c.zorlukDerecesi || 3,
       })),
-      assignments: plans.map((p: PlanItem) => {
+      assignments: (plans || []).map((p: PlanItem) => {
         const t = (teachers || []).find((x: Teacher) => x.id === p.ogretmenId);
         const c = (classes || []).find((x: ClassUnit) => x.id === p.sinifId);
         const cr = (courses || []).find((x: Course) => x.id === p.dersId);
